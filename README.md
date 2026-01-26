@@ -1,4 +1,4 @@
-# ⚽ Curse of Goals (Game Jam Submission)
+# ⚽ Soccer Madness (Game Jam Submission)
 
 **Event:** BUET CSE FEST 2026 Game Jam  
 **Theme:** Equivalent Exchange  

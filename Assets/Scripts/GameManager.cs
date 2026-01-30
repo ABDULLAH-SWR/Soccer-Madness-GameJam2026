@@ -72,10 +72,16 @@ public class GameManager : MonoBehaviour
         }
 
         roundInfoText.text = "ROUND " + MatchData.currentRound + "/3";
-        seriesScoreText.text = $"{leftTeamName} {MatchData.redRoundWins} - {MatchData.blueRoundWins} {rightTeamName}";
+        // Display current series score at start of round
+        UpdateSeriesUI();
 
         ApplyTeamVisuals();
         StartCoroutine(CountdownRoutine());
+    }
+
+    void UpdateSeriesUI()
+    {
+        seriesScoreText.text = $"{leftTeamName} {MatchData.redRoundWins} - {MatchData.blueRoundWins} {rightTeamName}";
     }
 
     void ApplyTeamVisuals()
@@ -112,7 +118,7 @@ public class GameManager : MonoBehaviour
 
             countdownText.text = "3";
             if (AudioManager.instance) AudioManager.instance.PlaySFX(AudioManager.instance.clickSound);
-            yield return new WaitForSecondsRealtime(countdownDelay); // Uses your custom speed
+            yield return new WaitForSecondsRealtime(countdownDelay);
 
             countdownText.text = "2";
             if (AudioManager.instance) AudioManager.instance.PlaySFX(AudioManager.instance.clickSound);
@@ -151,28 +157,18 @@ public class GameManager : MonoBehaviour
         if (!isGameActive) return;
         if (AudioManager.instance) AudioManager.instance.PlaySFX(AudioManager.instance.goalSound);
 
-        // Shake Camera
         if (CameraShake.instance) CameraShake.instance.Shake(0.2f, goalShakeAmt);
 
         if (isRedGoal)
         {
-            // --- BLUE SCORES ---
-            // Ball hit the "Red Goal" (Left Side), so Blue gets a point.
             scoreBlue++;
             blueScoreText.text = scoreBlue.ToString();
-
-            // STRICT RULE: Blue got a point, so Blue loses a player.
-            // We don't care who kicked it. Blue is winning, so Blue suffers.
             ApplyTheCurse(bluePlayers, "Blue");
         }
         else
         {
-            // --- RED SCORES ---
-            // Ball hit the "Blue Goal" (Right Side), so Red gets a point.
             scoreRed++;
             redScoreText.text = scoreRed.ToString();
-
-            // STRICT RULE: Red got a point, so Red loses a player.
             ApplyTheCurse(redPlayers, "Red");
         }
 
@@ -189,8 +185,6 @@ public class GameManager : MonoBehaviour
             Instantiate(deathPrefab, victim.transform.position, Quaternion.identity);
             Destroy(victim);
             if (AudioManager.instance) AudioManager.instance.PlaySFX(AudioManager.instance.curseSound);
-
-            // REDUCED SHAKE FOR CURSE
             if (CameraShake.instance) CameraShake.instance.Shake(0.3f, curseShakeAmt);
         }
 
@@ -202,10 +196,13 @@ public class GameManager : MonoBehaviour
     void EndRound(string roundWinner)
     {
         isGameActive = false;
-        gameOverPanel.SetActive(true);
 
+        // --- STEP 1: UPDATE LOGIC & SCORES BEFORE SHOWING PANEL ---
         if (roundWinner == "Red") MatchData.redRoundWins++;
         else MatchData.blueRoundWins++;
+
+        // Update the visual text immediately so the player sees the new score
+        UpdateSeriesUI();
 
         string winningName = (roundWinner == "Red") ? leftTeamName : rightTeamName;
         Color finalColor;
@@ -213,30 +210,52 @@ public class GameManager : MonoBehaviour
         if (winningName == "BRAZIL") ColorUtility.TryParseHtmlString("#00DB37", out finalColor);
         else ColorUtility.TryParseHtmlString("#78C3E9", out finalColor);
 
-        if (MatchData.redRoundWins >= 2)
+        // --- STEP 2: CHECK IF MATCH IS OVER ---
+        if (MatchData.redRoundWins >= 2 || MatchData.blueRoundWins >= 2)
         {
+            // Match Finished (Someone won 2 rounds)
             winnerText.text = winningName + " WINS MATCH!";
             winnerText.color = finalColor;
-            //buttonText.text = "MAIN MENU";
-            if (AudioManager.instance) AudioManager.instance.PlaySFX(AudioManager.instance.winSound);
-        }
-        else if (MatchData.blueRoundWins >= 2)
-        {
-            winnerText.text = winningName + " WINS MATCH!";
-            winnerText.color = finalColor;
-            //buttonText.text = "MAIN MENU";
+            buttonText.text = "PLAY AGAIN"; // This button now Resets the whole game
             if (AudioManager.instance) AudioManager.instance.PlaySFX(AudioManager.instance.winSound);
         }
         else
         {
+            // Just a Round Finished
             winnerText.text = winningName + " WINS ROUND " + MatchData.currentRound + "!";
             winnerText.color = finalColor;
             buttonText.text = "NEXT ROUND";
-            MatchData.currentRound++;
+            MatchData.currentRound++; // Prepare counter for next round
+        }
+
+        // --- STEP 3: FINALLY SHOW THE PANEL ---
+        gameOverPanel.SetActive(true);
+    }
+
+    public void HandleGameOverButton()
+    {
+        // Check if the MATCH is truly over (One side reached 2 wins)
+        if (MatchData.redRoundWins >= 2 || MatchData.blueRoundWins >= 2)
+        {
+            // --- THE FIX: FORCE RESET EVERYTHING MANUALLY ---
+            MatchData.redRoundWins = 0;
+            MatchData.blueRoundWins = 0;
+            MatchData.currentRound = 1;
+
+            // Optional: Reset player choices if you want to force character select again
+            // MatchData.playerChoseBrazil = true; 
+
+            // Reload the scene to start fresh
+            RestartGame();
+        }
+        else
+        {
+            // The match is NOT over (Score is 1-0 or 0-1, etc.)
+            // Just reload the scene to play the next round
+            RestartGame();
         }
     }
 
-    public void HandleGameOverButton() { if (MatchData.redRoundWins >= 2 || MatchData.blueRoundWins >= 2) { MatchData.ResetMatch(); GoToMainMenu(); } else { RestartGame(); } }
     public void RestartGame() { Time.timeScale = 1f; SceneManager.LoadScene(SceneManager.GetActiveScene().name); }
     public void GoToMainMenu() { Time.timeScale = 1f; SceneManager.LoadScene("MainMenu"); }
     public void QuitGame() { Application.Quit(); }

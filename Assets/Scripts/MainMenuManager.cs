@@ -12,6 +12,10 @@ public class MainMenuManager : MonoBehaviour
 
     void Start()
     {
+        if (MatchData.currentRound > 1 || MatchData.redRoundWins > 0 || MatchData.blueRoundWins > 0)
+        {
+            MatchData.ResetMatch();
+        }
         // Check if the player has seen the tutorial before.
         // 0 = No (First Time), 1 = Yes (Returning Player)
         if (PlayerPrefs.GetInt("HasSeenTutorial", 0) == 0)

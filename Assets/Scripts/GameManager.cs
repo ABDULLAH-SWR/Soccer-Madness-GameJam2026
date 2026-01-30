@@ -10,6 +10,9 @@ public class GameManager : MonoBehaviour
     public GameObject deathPrefab;
 
     [Header("Game Feel (Tweak These!)")]
+    [Tooltip("How long to wait after a goal before resetting")]
+    public float goalResetDelay = 2.0f;
+    private bool isResetting = false; // Prevents double-goals
     [Tooltip("How long to wait between 3, 2, 1")]
     public float countdownDelay = 1.0f;
     [Tooltip("Shake Power: Goal Scored")]
@@ -42,6 +45,10 @@ public class GameManager : MonoBehaviour
     [Header("Team Flags")]
     public Sprite brazilSprite;
     public Sprite argentinaSprite;
+
+    [Header("Team Colors")]
+    public Color brazilColor;      // We will set this to FCE31F
+    public Color argentinaColor;   // We will set this to 00FEE5
 
     [Header("Pause UI")]
     public GameObject pausePanel;
@@ -88,20 +95,76 @@ public class GameManager : MonoBehaviour
     {
         Sprite playerSprite;
         Sprite enemySprite;
+        Color playerColor;
+        Color enemyColor;
 
+        // Logic: Decide who gets which Sprite AND which Color
         if (MatchData.playerChoseBrazil)
         {
+            // Player 1 (Red/Left) is Brazil
             playerSprite = brazilSprite;
+            playerColor = brazilColor;
+
+            // Player 2 (Blue/Right) is Argentina
             enemySprite = argentinaSprite;
+            enemyColor = argentinaColor;
         }
         else
         {
+            // Player 1 (Red/Left) is Argentina
             playerSprite = argentinaSprite;
+            playerColor = argentinaColor;
+
+            // Player 2 (Blue/Right) is Brazil
             enemySprite = brazilSprite;
+            enemyColor = brazilColor;
         }
 
-        foreach (GameObject p in redPlayers) if (p != null) p.GetComponent<SpriteRenderer>().sprite = playerSprite;
-        foreach (GameObject p in bluePlayers) if (p != null) p.GetComponent<SpriteRenderer>().sprite = enemySprite;
+        // Apply to Left Team (Red List)
+        foreach (GameObject p in redPlayers)
+        {
+            if (p != null)
+            {
+                p.GetComponent<SpriteRenderer>().sprite = playerSprite;
+                SetRingColor(p, playerColor);
+            }
+        }
+
+        // Apply to Right Team (Blue List)
+        foreach (GameObject p in bluePlayers)
+        {
+            if (p != null)
+            {
+                p.GetComponent<SpriteRenderer>().sprite = enemySprite;
+                SetRingColor(p, enemyColor);
+            }
+        }
+    }
+
+    // Helper function to find the Ring and color it
+    void SetRingColor(GameObject player, Color c)
+    {
+        // Option 1: If the Ring is a child named "Ring"
+        Transform ringTrans = player.transform.Find("Ring");
+        if (ringTrans != null)
+        {
+            ringTrans.GetComponent<SpriteRenderer>().color = c;
+        }
+        else
+        {
+            // Option 2: If the Ring is just the second SpriteRenderer on the object
+            // (Use this if Option 1 doesn't work)
+            SpriteRenderer[] sprites = player.GetComponentsInChildren<SpriteRenderer>();
+            foreach (var s in sprites)
+            {
+                // We assume the main body is the one with the player sprite, 
+                // so the OTHER one must be the ring.
+                if (s.gameObject != player)
+                {
+                    s.color = c;
+                }
+            }
+        }
     }
 
     void Update()
@@ -154,9 +217,12 @@ public class GameManager : MonoBehaviour
 
     public void GoalScored(bool isRedGoal)
     {
-        if (!isGameActive) return;
-        if (AudioManager.instance) AudioManager.instance.PlaySFX(AudioManager.instance.goalSound);
+        // 1. Safety Check: If game is over OR we are already waiting for reset, stop.
+        if (!isGameActive || isResetting) return;
 
+        isResetting = true; // Block other goals immediately
+
+        if (AudioManager.instance) AudioManager.instance.PlaySFX(AudioManager.instance.goalSound);
         if (CameraShake.instance) CameraShake.instance.Shake(0.2f, goalShakeAmt);
 
         if (isRedGoal)
@@ -172,7 +238,44 @@ public class GameManager : MonoBehaviour
             ApplyTheCurse(redPlayers, "Red");
         }
 
-        if (isGameActive) ResetBall();
+        // 2. Instead of resetting instantly, start the delay routine
+        if (isGameActive)
+        {
+            StartCoroutine(GoalResetSequence());
+        }
+    }
+
+
+    IEnumerator GoalResetSequence()
+    {
+        // 1. Get Components
+        SpriteRenderer ballSr = ball.GetComponent<SpriteRenderer>();
+        if (ballSr == null) ballSr = ball.GetComponentInChildren<SpriteRenderer>();
+
+        Rigidbody2D rb = ball.GetComponent<Rigidbody2D>();
+        TrailRenderer trail = ball.GetComponent<TrailRenderer>();
+
+        // 2. Stop Physics
+        if (rb != null)
+        {
+            rb.linearVelocity = Vector2.zero;
+            rb.angularVelocity = 0f;
+        }
+
+        // 3. NUCLEAR FIX: Disable the trail component entirely
+        if (trail != null) trail.enabled = false;
+
+        // 4. Hide Ball Visuals
+        if (ballSr != null) ballSr.enabled = false;
+
+        // 5. Wait for explosion/delay
+        yield return new WaitForSeconds(goalResetDelay);
+
+        // 6. Reset & Show
+        ResetBall(); // This will re-enable the trail safely
+
+        if (ballSr != null) ballSr.enabled = true;
+        isResetting = false;
     }
 
     void ApplyTheCurse(List<GameObject> teamList, string victimTeamName)
@@ -257,7 +360,35 @@ public class GameManager : MonoBehaviour
     }
 
     public void RestartGame() { Time.timeScale = 1f; SceneManager.LoadScene(SceneManager.GetActiveScene().name); }
-    public void GoToMainMenu() { Time.timeScale = 1f; SceneManager.LoadScene("MainMenu"); }
+    public void GoToMainMenu()
+    {
+        // FIX: Reset the score when leaving the game, so the next game starts at 0-0
+        MatchData.ResetMatch();
+
+        Time.timeScale = 1f;
+        SceneManager.LoadScene("MainMenu");
+    }
     public void QuitGame() { Application.Quit(); }
-    void ResetBall() { if (ball == null) return; Rigidbody2D rb = ball.GetComponent<Rigidbody2D>(); rb.linearVelocity = Vector2.zero; rb.angularVelocity = 0f; TrailRenderer trail = ball.GetComponent<TrailRenderer>(); if (trail != null) trail.Clear(); ball.transform.position = centerPoint.position; }
+    void ResetBall()
+    {
+        if (ball == null) return;
+
+        Rigidbody2D rb = ball.GetComponent<Rigidbody2D>();
+        if (rb != null)
+        {
+            rb.linearVelocity = Vector2.zero;
+            rb.angularVelocity = 0f;
+        }
+
+        // 1. MOVE the ball first (while trail is still off/cleared)
+        ball.transform.position = Vector3.zero;
+
+        // 2. Handle the Trail
+        TrailRenderer trail = ball.GetComponent<TrailRenderer>();
+        if (trail != null)
+        {
+            trail.Clear();          // Erase any old history
+            trail.enabled = true;   // Turn it back on for the new round
+        }
+    }
 }
